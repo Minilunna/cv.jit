@@ -26,6 +26,7 @@ endif()
 
 set (OPENCV4_INSTALL_DIR "${DEFAULT_INSTALL_DIR}/opencv4" CACHE PATH "The install location of OpenCV 4")
 set (OPENCV2_INSTALL_DIR "${DEFAULT_INSTALL_DIR}/opencv2" CACHE PATH "The install location of OpenCV 2")
+set (ZXING_INSTALL_DIR "${DEFAULT_INSTALL_DIR}/zxing" CACHE PATH "The install location of zxing")
 
 if (WIN32)
 	set (STATIC_RUNTIME 
