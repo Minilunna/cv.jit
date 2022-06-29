@@ -1,14 +1,17 @@
 /*
+  Projeto LEI
+  Claudia Pires - 1303334
+  2022
+  max.cv.jit.barcode.cpp
+*/
+
+/*
 max.cv.jit.barcode
     
-
-Copyright 2010, Jean-Marc Pelletier
-jmp@jmpelletier.com
-
-This file is part of cv.jit.
+This file uses cv.jit.
 
 cv.jit is free software: you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published 
+it under the terms of the GNU Lesser General Public License as published
 by the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 

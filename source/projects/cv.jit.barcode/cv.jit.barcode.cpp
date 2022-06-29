@@ -29,6 +29,7 @@ in Jitter externals.
 
 #include "cvjit.h"
 #include <opencv2/dnn/dnn.hpp>
+#include <opencv2/ximgproc.hpp>
 #include <fstream>
 #include <zxing/Binarizer.h>
 #include <zxing/MultiFormatReader.h>
@@ -86,7 +87,7 @@ typedef struct _cv_jit_barcode
 		this->resize_frame = cv::Size(height, width);
 		this->filename = std::string(filename);
 
-		// Load Model asynchronously
+		//get absolute paths for existing configuration files
 		std::string abs_classes_path = cvjit::get_absolute_path(classes);
 		std::string abs_config_path = cvjit::get_absolute_path(config);
 		std::string abs_weights_path = cvjit::get_absolute_path(weights);
@@ -95,12 +96,13 @@ typedef struct _cv_jit_barcode
 		{
 			object_post((t_object*)this, "Loading net from Darknet. This may take some time...");
 
+			// Load Model asynchronously
 			std::thread worker = std::thread(
 				[this, abs_classes_path, abs_config_path, abs_weights_path]()
 				{
 					try
 					{
-						//Load Classes from file
+						//Load Classes from classes file
 						std::ifstream input(abs_classes_path);
 						if (input.is_open())
 						{
@@ -120,8 +122,8 @@ typedef struct _cv_jit_barcode
 						}
 
 						net.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
-						out_names = net.getUnconnectedOutLayersNames();
 
+						out_names = net.getUnconnectedOutLayersNames();
 						std::string str = "";
 						if (!out_names.empty())
 						{
@@ -129,6 +131,7 @@ typedef struct _cv_jit_barcode
 							for (size_t i = 0; i != out_names.size(); ++i)
 								str = str + "    " + out_names[i] + "\n";
 						}
+						//output the configuration to Max console
 						object_post((t_object*)this,
 							"Finished loading net from Darknet:\nConfig : %s \nWeight : %s \nClasses: %s \nDetection threshold : %9.6f\nResize : (%d,%d)\noutput:%s%s",
 							abs_config_path.c_str(), 
@@ -209,6 +212,7 @@ t_jit_err cv_jit_barcode_init(void)
 	return JIT_ERR_NONE;
 }
 
+//module creation with the default parameters
 t_cv_jit_barcode* cv_jit_barcode_new(void)
 {
 	t_cv_jit_barcode* x = (t_cv_jit_barcode*)jit_object_alloc(_cv_jit_barcode_class);
@@ -227,6 +231,7 @@ t_cv_jit_barcode* cv_jit_barcode_new(void)
 	return x;
 }
 
+//Read command to reconfigure the module
 void cv_jit_barcode_read(t_cv_jit_barcode* x, t_symbol* s, short argc, t_atom* argv)
 {
 	if (x)
@@ -243,6 +248,7 @@ void cv_jit_barcode_read(t_cv_jit_barcode* x, t_symbol* s, short argc, t_atom* a
 	}
 }
 
+//Module main operation
 t_jit_err cv_jit_barcode_matrix_calc(t_cv_jit_barcode* x, void* inputs, void* outputs)
 {
 	std::vector<cv::Rect> faces;
@@ -270,8 +276,9 @@ t_jit_err cv_jit_barcode_matrix_calc(t_cv_jit_barcode* x, void* inputs, void* ou
 				// Convert Jitter matrix to OpenCV matrix
 				cv::Mat src = input_image;
 
-				if (src.channels() == 4) //If we have 4 channels ( Max Default ) we remove the Alpha layer
+				if (src.channels() == 4) { //If we have 4 channels ( Max Default ) we remove the Alpha layer
 					cv::cvtColor(src, src, cv::COLOR_RGBA2BGR);
+				}
 
 				cv::Mat dst = cv::dnn::blobFromImage(src, 1 / 255.F, x->resize_frame, cv::Scalar(), true, false, CV_32F);
 				x->net.setInput(dst);
@@ -280,23 +287,25 @@ t_jit_err cv_jit_barcode_matrix_calc(t_cv_jit_barcode* x, void* inputs, void* ou
 				std::vector<cv::Mat> outs;
 				x->net.forward(outs, x->out_names);
 
-				if (outs.size() == 0) {
+				//Do we detected any class?
+				if (outs.size() == 0) { //No
 					results.set_size(1);
 					results.clear();
 					return JIT_ERR_NONE;
 				}
+				
+				//results.set_size(outs.size());
 
-				results.set_size(outs.size());
-
-				//Process outputs:
+				//Process outputs from the DNN:
 				std::vector<cv::Rect> boxes;
 				std::vector<int> classIds;
 				std::vector<float> confidences;
 
 				for (size_t i = 0; i < outs.size(); ++i)
 				{
-					// Network produces output blob with a shape NxC where N is a number of detected objects and C is a number of classes + 4 where the first 4
-					// numbers are [center_x, center_y, width, height]
+					// Network produces output blob with a shape NxC where 
+					// N is a number of detected objects and 
+					// C is a number of classes + 4 where the first 4 numbers are [center_x, center_y, width, height]
 					float* data = (float*)outs[i].data;
 					for (int j = 0; j < outs[i].rows; ++j, data += outs[i].cols)
 					{
@@ -306,8 +315,8 @@ t_jit_err cv_jit_barcode_matrix_calc(t_cv_jit_barcode* x, void* inputs, void* ou
 						double confidence;
 						cv::minMaxLoc(scores, 0, &confidence, 0, &classIdPoint);
 
-						if (confidence > x->threshold)
-						{
+						if (confidence > x->threshold) // if the confidence pass our threshold value
+						{								//convert from normalized coordinates to image coordinates( [0, 1] -> [0, width|height])
 							int centerX = (int)(data[0] * src.cols);
 							int centerY = (int)(data[1] * src.rows);
 							int width = (int)(data[2] * src.cols);
@@ -322,7 +331,7 @@ t_jit_err cv_jit_barcode_matrix_calc(t_cv_jit_barcode* x, void* inputs, void* ou
 					}
 				}
 
-				//check which objects passed the treshold value
+				//from the detected objects, check if we have any that passed the treshold value
 				if (boxes.size() == 0) {
 					results.set_size(1);
 					results.clear();
@@ -338,6 +347,7 @@ t_jit_err cv_jit_barcode_matrix_calc(t_cv_jit_barcode* x, void* inputs, void* ou
 				// Get output Matrix data
 				float* out_data = results.get_data<float>();
 
+				//Initialize zxing reader and hints
 				zxing::Ref<zxing::Reader> reader(new zxing::MultiFormatReader);
 				zxing::DecodeHints hints(zxing::DecodeHints::DEFAULT_HINT);
 				hints.setTryHarder(true);
@@ -351,20 +361,69 @@ t_jit_err cv_jit_barcode_matrix_calc(t_cv_jit_barcode* x, void* inputs, void* ou
 
 					try
 					{
-						cv::Mat barcode(src, rect); 
-						time_t t = time(0);   // get time now
+						cv::Mat barcode(src, rect); //create an Matrix (image) with the contents of the original image that are within the rectangle
 						cv::cvtColor(barcode, barcode, cv::COLOR_RGB2GRAY); //convert to grayscale
 
 						/* for debug: This will write the detected image in a file with the name test - <epoch time>.png
+						time_t t = time(0);   // get time now
 						std::string buffer = "test - " + std::to_string(long(std::time(nullptr))) + ".png";
 						cv::imwrite(buffer.c_str(), barcode);
-						*/
+						/**/
+						cv::Ptr<cv::ximgproc::FastLineDetector> lsd = cv::ximgproc::createFastLineDetector();
+						std::vector<cv::Vec4f> lines;
+						lsd->detect(barcode, lines);
 
-						zxing::Ref<zxing::LuminanceSource> source = MatSource::create(barcode);
+						double angle = 0 ;
+						std::map<double, int> frequencyMap;
+
+						int maxFrequency = 0;
+						float to_deg = 180 / 3.14159265358979323846;
+
+						for (size_t i = 0; i < lines.size(); i++) {
+							cv::Vec4i v = lines[i];
+							cv::Point from(v[0], v[1]);
+							cv::Point to(v[2], v[3]);
+
+							double angles = atan2(from.x - to.x, from.y - to.y) * to_deg ;
+
+							if (angles > -91 && angles < 91) {
+								int f = ++frequencyMap[angles];
+								if (f > maxFrequency)
+								{
+									maxFrequency = f;
+									angle = angles;
+								}
+							}
+						}
+
+
+						// we will save the resulting image in rotated_image matrix
+						cv::Mat rotated_image;
+						if (abs(angle) > 0.1) {
+							//get the center coordinates of the image to create the 2D rotation matrix
+							cv::Point2f center(barcode.size().width / 2, barcode.size().height / 2);
+
+							cv::Mat rotate_matrix = cv::getRotationMatrix2D(center, -1 * angle, 1);
+
+							// rotate the image 
+							cv::warpAffine(barcode, rotated_image, rotate_matrix, barcode.size());
+							
+							/* for debug: This will write the rotated image in a file
+							std::string buffer = "test_r - " + std::to_string(long(std::time(nullptr))) + ".png";
+							cv::imwrite(buffer.c_str(), rotated_image);
+							/**/
+						}
+						else {
+							rotated_image = barcode;
+						}
+
+						//deliver the detected image for zxing decoding
+						zxing::Ref<zxing::LuminanceSource> source = MatSource::create(rotated_image);
 						zxing::Ref<zxing::Binarizer> binarizer(new zxing::GlobalHistogramBinarizer(source));
 						zxing::Ref<zxing::BinaryBitmap> image(new zxing::BinaryBitmap(binarizer));
 						zxing::Ref<zxing::Result> result = reader->decode(image, hints);
 
+						//write the barcode value to the output file
 						std::ofstream output(x->filename, std::ios::out | std::ios::app);
 						if (output.is_open())
 						{
