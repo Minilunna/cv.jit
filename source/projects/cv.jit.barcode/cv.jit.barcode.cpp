@@ -1,4 +1,11 @@
 /*
+  Projeto LEI
+  Claudia Pires - 1303334
+  2022
+  max.cv.jit.barcode.cpp
+*/
+
+/*
 cv.jit.barcode
 
 This file uses cv.jit.
