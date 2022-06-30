@@ -2,8 +2,7 @@
 ##  Projeto LEI
 ##  Claudia Pires - 1303334
 ##  2022
-##  max.cv.jit.barcode.cpp
-
+##  CMakeList.txt
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/../cvjit-pretarget.cmake)
 
